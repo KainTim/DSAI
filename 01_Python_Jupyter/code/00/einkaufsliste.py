@@ -9,15 +9,29 @@ class Product:
     def __str__(self):
         return f"{self.name} ({self.price} €)"
 
+    def __eq__(self, value: object) -> bool:
+        if isinstance(value, Product):
+            print(f"self.name: {self.name}, value.name: {value.name}, self.menge: {self.menge}, value.menge: {value.menge}, self.price: {self.price}, value.price: {value.price}")
+            return self.name == value.name and self.price == value.price
+        return False
+
 
 def produkt_hinzufuegen(einkaufsliste:list[Product]):
     #Get User input
     name = input("Geben Sie den Namen des Produkts ein: ")
     preis = float(input("Geben Sie den Preis des Produkts ein: "))
     menge = int(input("Geben Sie die Menge des Produkts ein: "))
+    product = Product(name,preis,menge)
     #Add the product to the list
-    einkaufsliste.append(Product(name,preis,menge))
-    print(f"{name} wurde zur Einkaufsliste hinzugefügt")
+    added = False
+    for productold in einkaufsliste:
+        if productold == product:
+            einkaufsliste.remove(productold)
+            einkaufsliste.append(Product(product.name, product.price, product.menge+productold.menge))
+            added = True
+    if not added:
+        einkaufsliste.append(product)
+    print(f"{product.menge}x {name} wurde zur Einkaufsliste hinzugefügt")
 
 def einkaufsliste_entfernen(einkaufsliste:list[Product]):
     #Get User input
