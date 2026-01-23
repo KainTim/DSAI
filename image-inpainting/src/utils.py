@@ -18,7 +18,7 @@ def plot(inputs, targets, predictions, path, update):
     os.makedirs(path, exist_ok=True)
     fig, axes = plt.subplots(ncols=3, figsize=(15, 5))
 
-    for i in range(len(inputs)):
+    for i in range(5):
         for ax, data, title in zip(axes, [inputs, targets, predictions], ["Input", "Target", "Prediction"]):
             ax.clear()
             ax.set_title(title)

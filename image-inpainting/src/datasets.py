@@ -4,6 +4,7 @@
     datasets.py
 """
 
+from torchvision import transforms
 import torch
 import numpy as np
 import random
@@ -15,16 +16,25 @@ IMAGE_DIMENSION = 100
 
 
 def create_arrays_from_image(image_array: np.ndarray, offset: tuple, spacing: tuple) -> tuple[np.ndarray, np.ndarray]:
-    image_array, known_array = None, None
+    image_array = np.transpose(image_array, (2, 0, 1))
+    known_array = np.zeros_like(image_array)
 
-    # TODO: Implement the logic to create input and known arrays based on offset and spacing
+    known_array[:, offset[1]::spacing[1], offset[0]::spacing[0]] = 1
+
+    image_array[known_array == 0] = 0
+    known_array = known_array[0:1]
 
     return image_array, known_array
 
 def resize(img: Image):
-    pass
+    resize_transforms = transforms.Compose([
+        transforms.Resize((IMAGE_DIMENSION, IMAGE_DIMENSION)),
+        transforms.CenterCrop((IMAGE_DIMENSION, IMAGE_DIMENSION))
+    ])
+    return resize_transforms(img)
 def preprocess(input_array: np.ndarray):
-    pass
+    input_array = np.asarray(input_array, dtype=np.float32) / 255.0
+    return input_array
 
 class ImageDataset(torch.utils.data.Dataset):
     """
@@ -38,6 +48,20 @@ class ImageDataset(torch.utils.data.Dataset):
         return len(self.imagefiles)
         
     def __getitem__(self, idx:int):
-        pass
+        index = int(idx)
         
-    # TODO: Implement the __init__, __len__, and __getitem__ methods
+        image = Image.open(self.imagefiles[index])
+        image = np.asarray(resize(image))
+        image = preprocess(image)
+        spacing_x = random.randint(2,6)
+        spacing_y = random.randint(2,6)
+        offset_x = random.randint(0,8)
+        offset_y = random.randint(0,8)
+        spacing = (spacing_x, spacing_y)
+        offset = (offset_x, offset_y)
+        input_array, known_array = create_arrays_from_image(image.copy(), offset, spacing)
+        target_image = torch.from_numpy(np.transpose(image, (2,0,1)))
+        input_array = torch.from_numpy(input_array)
+        known_array = torch.from_numpy(known_array)
+        input_array = torch.cat((input_array, known_array), dim=0)
+        return input_array, target_image
