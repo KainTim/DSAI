@@ -25,7 +25,7 @@ if __name__ == '__main__':
     config_dict['device'] = None
     config_dict['learningrate'] = 3e-4  # Optimal learning rate for AdamW
     config_dict['weight_decay'] = 1e-4  # Slightly higher for better regularization
-    config_dict['n_updates'] = 300  # More updates for better convergence
+    config_dict['n_updates'] = 5000  # More updates for better convergence
     config_dict['batchsize'] = 8  # Smaller batch for better gradient estimates
     config_dict['early_stopping_patience'] = 10  # More patience for complex model
     config_dict['use_wandb'] = False
