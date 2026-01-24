@@ -10,6 +10,7 @@ from utils import plot, evaluate_model
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import os
 
@@ -20,15 +21,58 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 import wandb
 
 
+def gaussian_kernel(window_size=11, sigma=1.5):
+    """Create a Gaussian kernel for SSIM computation"""
+    x = torch.arange(window_size).float() - window_size // 2
+    gauss = torch.exp(-x.pow(2) / (2 * sigma ** 2))
+    kernel = gauss / gauss.sum()
+    kernel_2d = kernel.unsqueeze(1) * kernel.unsqueeze(0)
+    return kernel_2d.unsqueeze(0).unsqueeze(0)
+
+
+class SSIMLoss(nn.Module):
+    """Structural Similarity Index Loss for perceptual quality"""
+    def __init__(self, window_size=11, sigma=1.5):
+        super().__init__()
+        self.window_size = window_size
+        kernel = gaussian_kernel(window_size, sigma)
+        self.register_buffer('kernel', kernel)
+        self.C1 = 0.01 ** 2
+        self.C2 = 0.03 ** 2
+    
+    def forward(self, pred, target):
+        # Apply to each channel
+        channels = pred.shape[1]
+        kernel = self.kernel.repeat(channels, 1, 1, 1)
+        
+        mu_pred = F.conv2d(pred, kernel, padding=self.window_size // 2, groups=channels)
+        mu_target = F.conv2d(target, kernel, padding=self.window_size // 2, groups=channels)
+        
+        mu_pred_sq = mu_pred.pow(2)
+        mu_target_sq = mu_target.pow(2)
+        mu_pred_target = mu_pred * mu_target
+        
+        sigma_pred_sq = F.conv2d(pred * pred, kernel, padding=self.window_size // 2, groups=channels) - mu_pred_sq
+        sigma_target_sq = F.conv2d(target * target, kernel, padding=self.window_size // 2, groups=channels) - mu_target_sq
+        sigma_pred_target = F.conv2d(pred * target, kernel, padding=self.window_size // 2, groups=channels) - mu_pred_target
+        
+        ssim = ((2 * mu_pred_target + self.C1) * (2 * sigma_pred_target + self.C2)) / \
+               ((mu_pred_sq + mu_target_sq + self.C1) * (sigma_pred_sq + sigma_target_sq + self.C2))
+        
+        return 1 - ssim.mean()
+
+
 class CombinedLoss(nn.Module):
-    """Combined loss: MSE + L1 + SSIM-like perceptual component"""
-    def __init__(self, mse_weight=1.0, l1_weight=0.5, edge_weight=0.1):
+    """Combined loss: MSE + L1 + SSIM + Edge for comprehensive image reconstruction"""
+    def __init__(self, mse_weight=1.0, l1_weight=0.5, edge_weight=0.15, ssim_weight=0.3):
         super().__init__()
         self.mse_weight = mse_weight
         self.l1_weight = l1_weight
         self.edge_weight = edge_weight
+        self.ssim_weight = ssim_weight
         self.mse = nn.MSELoss()
         self.l1 = nn.L1Loss()
+        self.ssim = SSIMLoss(window_size=7)
         
         # Sobel filters for edge detection
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3)
@@ -38,10 +82,10 @@ class CombinedLoss(nn.Module):
     
     def edge_loss(self, pred, target):
         """Compute edge-aware loss using Sobel filters"""
-        pred_edge_x = torch.nn.functional.conv2d(pred, self.sobel_x, padding=1, groups=3)
-        pred_edge_y = torch.nn.functional.conv2d(pred, self.sobel_y, padding=1, groups=3)
-        target_edge_x = torch.nn.functional.conv2d(target, self.sobel_x, padding=1, groups=3)
-        target_edge_y = torch.nn.functional.conv2d(target, self.sobel_y, padding=1, groups=3)
+        pred_edge_x = F.conv2d(pred, self.sobel_x, padding=1, groups=3)
+        pred_edge_y = F.conv2d(pred, self.sobel_y, padding=1, groups=3)
+        target_edge_x = F.conv2d(target, self.sobel_x, padding=1, groups=3)
+        target_edge_y = F.conv2d(target, self.sobel_y, padding=1, groups=3)
         
         edge_loss = self.l1(pred_edge_x, target_edge_x) + self.l1(pred_edge_y, target_edge_y)
         return edge_loss
@@ -50,8 +94,12 @@ class CombinedLoss(nn.Module):
         mse_loss = self.mse(pred, target)
         l1_loss = self.l1(pred, target)
         edge_loss = self.edge_loss(pred, target)
+        ssim_loss = self.ssim(pred, target)
         
-        total_loss = self.mse_weight * mse_loss + self.l1_weight * l1_loss + self.edge_weight * edge_loss
+        total_loss = (self.mse_weight * mse_loss + 
+                      self.l1_weight * l1_loss + 
+                      self.edge_weight * edge_loss +
+                      self.ssim_weight * ssim_loss)
         return total_loss
 
 
@@ -112,7 +160,7 @@ def train(seed, testset_ratio, validset_ratio, data_path, results_path, early_st
     network.train()
 
     # defining the loss - combined loss for better reconstruction
-    combined_loss = CombinedLoss(mse_weight=1.0, l1_weight=0.5, edge_weight=0.1).to(device)
+    combined_loss = CombinedLoss(mse_weight=1.0, l1_weight=0.5, edge_weight=0.15, ssim_weight=0.3).to(device)
     mse_loss = torch.nn.MSELoss()  # Keep for evaluation
 
     # defining the optimizer with AdamW for better weight decay handling

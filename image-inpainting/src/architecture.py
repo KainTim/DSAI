@@ -68,6 +68,46 @@ class CBAM(nn.Module):
         return x
 
 
+class MultiScaleFeatureExtraction(nn.Module):
+    """Multi-scale feature extraction using dilated convolutions"""
+    def __init__(self, channels):
+        super().__init__()
+        self.branch1 = nn.Sequential(
+            nn.Conv2d(channels, channels // 4, 1),
+            nn.BatchNorm2d(channels // 4),
+            nn.LeakyReLU(0.1, inplace=True)
+        )
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(channels, channels // 4, 3, padding=2, dilation=2),
+            nn.BatchNorm2d(channels // 4),
+            nn.LeakyReLU(0.1, inplace=True)
+        )
+        self.branch3 = nn.Sequential(
+            nn.Conv2d(channels, channels // 4, 3, padding=4, dilation=4),
+            nn.BatchNorm2d(channels // 4),
+            nn.LeakyReLU(0.1, inplace=True)
+        )
+        self.branch4 = nn.Sequential(
+            nn.Conv2d(channels, channels // 4, 3, padding=8, dilation=8),
+            nn.BatchNorm2d(channels // 4),
+            nn.LeakyReLU(0.1, inplace=True)
+        )
+        self.fusion = nn.Sequential(
+            nn.Conv2d(channels, channels, 1),
+            nn.BatchNorm2d(channels),
+            nn.LeakyReLU(0.1, inplace=True)
+        )
+    
+    def forward(self, x):
+        b1 = self.branch1(x)
+        b2 = self.branch2(x)
+        b3 = self.branch3(x)
+        b4 = self.branch4(x)
+        out = torch.cat([b1, b2, b3, b4], dim=1)
+        out = self.fusion(out)
+        return out + x  # Residual connection
+
+
 class ConvBlock(nn.Module):
     """Convolutional block with Conv2d -> BatchNorm -> LeakyReLU"""
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, dropout=0.0):
@@ -158,10 +198,11 @@ class MyModel(nn.Module):
         self.down3 = DownBlock(base_channels * 4, base_channels * 8, dropout=dropout)
         self.down4 = DownBlock(base_channels * 8, base_channels * 16, dropout=dropout)
         
-        # Bottleneck with multiple residual blocks
+        # Bottleneck with multiple residual blocks and multi-scale features
         self.bottleneck = nn.Sequential(
             ConvBlock(base_channels * 16, base_channels * 16, dropout=dropout),
             ResidualConvBlock(base_channels * 16, dropout=dropout),
+            MultiScaleFeatureExtraction(base_channels * 16),
             ResidualConvBlock(base_channels * 16, dropout=dropout),
             ResidualConvBlock(base_channels * 16, dropout=dropout),
             CBAM(base_channels * 16)

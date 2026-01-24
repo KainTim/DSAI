@@ -10,9 +10,48 @@ import numpy as np
 import random
 import glob
 import os
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 IMAGE_DIMENSION = 100
+
+
+class DataAugmentation:
+    """Data augmentation pipeline for improved generalization"""
+    
+    def __init__(self, p=0.5):
+        self.p = p
+    
+    def __call__(self, image: Image.Image) -> Image.Image:
+        # Random horizontal flip
+        if random.random() < self.p:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+        
+        # Random vertical flip
+        if random.random() < self.p * 0.5:
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+        
+        # Random rotation (90 degree increments)
+        if random.random() < self.p * 0.3:
+            angle = random.choice([90, 180, 270])
+            image = image.rotate(angle)
+        
+        # Color jittering
+        if random.random() < self.p * 0.4:
+            # Brightness
+            enhancer = ImageEnhance.Brightness(image)
+            image = enhancer.enhance(random.uniform(0.85, 1.15))
+        
+        if random.random() < self.p * 0.4:
+            # Contrast
+            enhancer = ImageEnhance.Contrast(image)
+            image = enhancer.enhance(random.uniform(0.85, 1.15))
+        
+        if random.random() < self.p * 0.3:
+            # Saturation
+            enhancer = ImageEnhance.Color(image)
+            image = enhancer.enhance(random.uniform(0.85, 1.15))
+        
+        return image
 
 
 def create_arrays_from_image(image_array: np.ndarray, offset: tuple, spacing: tuple) -> tuple[np.ndarray, np.ndarray]:
@@ -38,30 +77,42 @@ def preprocess(input_array: np.ndarray):
 
 class ImageDataset(torch.utils.data.Dataset):
     """
-    Dataset class for loading images from a folder
+    Dataset class for loading images from a folder with augmentation
     """
 
-    def __init__(self, datafolder: str):
-        self.imagefiles = sorted(glob.glob(os.path.join(datafolder,"**","*.jpg"),recursive=True))
+    def __init__(self, datafolder: str, augment: bool = True):
+        self.imagefiles = sorted(glob.glob(os.path.join(datafolder, "**", "*.jpg"), recursive=True))
+        self.augment = augment
+        self.augmentation = DataAugmentation(p=0.5) if augment else None
 
     def __len__(self):
         return len(self.imagefiles)
         
-    def __getitem__(self, idx:int):
+    def __getitem__(self, idx: int):
         index = int(idx)
         
-        image = Image.open(self.imagefiles[index])
-        image = np.asarray(resize(image))
+        image = Image.open(self.imagefiles[index]).convert('RGB')
+        
+        # Apply augmentation before resize
+        if self.augment and self.augmentation is not None:
+            image = self.augmentation(image)
+        
+        image = resize(image)
+        image = np.asarray(image)
         image = preprocess(image)
-        spacing_x = random.randint(2,6)
-        spacing_y = random.randint(2,6)
-        offset_x = random.randint(0,8)
-        offset_y = random.randint(0,8)
+        
+        # More varied spacing for better generalization
+        spacing_x = random.randint(2, 8)
+        spacing_y = random.randint(2, 8)
+        offset_x = random.randint(0, min(spacing_x - 1, 8))
+        offset_y = random.randint(0, min(spacing_y - 1, 8))
         spacing = (spacing_x, spacing_y)
         offset = (offset_x, offset_y)
+        
         input_array, known_array = create_arrays_from_image(image.copy(), offset, spacing)
-        target_image = torch.from_numpy(np.transpose(image, (2,0,1)))
+        target_image = torch.from_numpy(np.transpose(image, (2, 0, 1)))
         input_array = torch.from_numpy(input_array)
         known_array = torch.from_numpy(known_array)
         input_array = torch.cat((input_array, known_array), dim=0)
+        
         return input_array, target_image

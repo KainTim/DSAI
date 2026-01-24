@@ -23,11 +23,11 @@ if __name__ == '__main__':
     config_dict['results_path'] = os.path.join(project_root, "results")
     config_dict['data_path'] = os.path.join(project_root, "data", "dataset")
     config_dict['device'] = None
-    config_dict['learningrate'] = 3e-4  # Optimal learning rate for AdamW
-    config_dict['weight_decay'] = 1e-4  # Slightly higher for better regularization
-    config_dict['n_updates'] = 5000  # More updates for better convergence
+    config_dict['learningrate'] = 2e-4  # Slightly lower for stable training
+    config_dict['weight_decay'] = 5e-5  # Reduced weight decay
+    config_dict['n_updates'] = 8000  # More updates for better convergence
     config_dict['batchsize'] = 8  # Smaller batch for better gradient estimates
-    config_dict['early_stopping_patience'] = 10  # More patience for complex model
+    config_dict['early_stopping_patience'] = 15  # More patience for complex model
     config_dict['use_wandb'] = False
 
     config_dict['print_train_stats_at'] = 10
@@ -37,8 +37,8 @@ if __name__ == '__main__':
 
     network_config = {
         'n_in_channels': 4,
-        'base_channels': 48,  # Good balance between capacity and memory
-        'dropout': 0.1  # Regularization
+        'base_channels': 56,  # Increased capacity for better feature learning
+        'dropout': 0.08  # Slightly less dropout with augmentation
     }
     
     config_dict['network_config'] = network_config
