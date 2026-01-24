@@ -10,7 +10,7 @@ import numpy as np
 import random
 import glob
 import os
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 IMAGE_DIMENSION = 100
 
@@ -32,17 +32,44 @@ def resize(img: Image):
         transforms.CenterCrop((IMAGE_DIMENSION, IMAGE_DIMENSION))
     ])
     return resize_transforms(img)
+
 def preprocess(input_array: np.ndarray):
     input_array = np.asarray(input_array, dtype=np.float32) / 255.0
     return input_array
 
+def augment_image(img: Image, strength: float = 0.5) -> Image:
+    """Apply fast data augmentation with controlled strength"""
+    # Random horizontal flip
+    if random.random() > 0.5:
+        img = img.transpose(Image.FLIP_LEFT_RIGHT)
+    
+    # Random rotation (90, 180, 270 degrees) - less frequent for speed
+    if random.random() > 0.6:
+        angle = random.choice([90, 180, 270])
+        img = img.rotate(angle)
+    
+    # Simplified color jitter - only one transformation per image for speed
+    rand = random.random()
+    if rand > 0.66:
+        # Brightness
+        factor = 1.0 + random.uniform(-0.15, 0.15) * strength
+        img = ImageEnhance.Brightness(img).enhance(factor)
+    elif rand > 0.33:
+        # Contrast
+        factor = 1.0 + random.uniform(-0.15, 0.15) * strength
+        img = ImageEnhance.Contrast(img).enhance(factor)
+    
+    return img
+
 class ImageDataset(torch.utils.data.Dataset):
     """
-    Dataset class for loading images from a folder
+    Dataset class for loading images from a folder with augmentation support
     """
 
-    def __init__(self, datafolder: str):
+    def __init__(self, datafolder: str, augment: bool = True, augment_strength: float = 0.5):
         self.imagefiles = sorted(glob.glob(os.path.join(datafolder,"**","*.jpg"),recursive=True))
+        self.augment = augment
+        self.augment_strength = augment_strength
 
     def __len__(self):
         return len(self.imagefiles)
@@ -51,7 +78,13 @@ class ImageDataset(torch.utils.data.Dataset):
         index = int(idx)
         
         image = Image.open(self.imagefiles[index])
-        image = np.asarray(resize(image))
+        image = resize(image)
+        
+        # Apply augmentation
+        if self.augment:
+            image = augment_image(image, self.augment_strength)
+        
+        image = np.asarray(image)
         image = preprocess(image)
         spacing_x = random.randint(2,6)
         spacing_y = random.randint(2,6)

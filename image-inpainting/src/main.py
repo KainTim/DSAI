@@ -24,22 +24,22 @@ if __name__ == '__main__':
     config_dict['results_path'] = os.path.join(project_root, "results")
     config_dict['data_path'] = os.path.join(project_root, "data", "dataset")
     config_dict['device'] = None
-    config_dict['learningrate'] = 3e-4  # Optimal learning rate for AdamW
-    config_dict['weight_decay'] = 1e-4  # Slightly higher for better regularization
-    config_dict['n_updates'] = 5000  # More updates for better convergence
-    config_dict['batchsize'] = 8  # Smaller batch for better gradient estimates
-    config_dict['early_stopping_patience'] = 10  # More patience for complex model
+    config_dict['learningrate'] = 8e-4  # Higher max LR for OneCycleLR
+    config_dict['weight_decay'] = 1e-5  # Lower for faster learning
+    config_dict['n_updates'] = 3500  # Reduced for fast training
+    config_dict['batchsize'] = 16  # Larger batch for speed
+    config_dict['early_stopping_patience'] = 12  # Adjusted patience
     config_dict['use_wandb'] = False
 
     config_dict['print_train_stats_at'] = 10
     config_dict['print_stats_at'] = 100
-    config_dict['plot_at'] = 300
-    config_dict['validate_at'] = 300  # Validate more frequently
+    config_dict['plot_at'] = 500
+    config_dict['validate_at'] = 150  # More frequent validation
 
     network_config = {
         'n_in_channels': 4,
-        'base_channels': 48,  # Good balance between capacity and memory
-        'dropout': 0.1  # Regularization
+        'base_channels': 40,  # Reduced for lower complexity
+        'dropout': 0.05  # Lower dropout for faster convergence
     }
     
     config_dict['network_config'] = network_config
