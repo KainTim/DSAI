@@ -18,6 +18,20 @@ def init_weights(m):
     elif isinstance(m, nn.BatchNorm2d):
         nn.init.constant_(m.weight, 1)
         nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.GroupNorm):
+        if m.weight is not None:
+            nn.init.constant_(m.weight, 1)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+
+
+def _make_norm(num_channels: int) -> nn.Module:
+    """Batch-size independent normalization (works well for batch_size=1 eval)."""
+    # Choose a group count that divides num_channels.
+    num_groups = min(32, num_channels)
+    while num_groups > 1 and (num_channels % num_groups) != 0:
+        num_groups //= 2
+    return nn.GroupNorm(num_groups=num_groups, num_channels=num_channels)
 
 
 class ChannelAttention(nn.Module):
@@ -73,7 +87,7 @@ class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, dropout=0.0):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding)
-        self.bn = nn.BatchNorm2d(out_channels)
+        self.bn = _make_norm(out_channels)
         self.relu = nn.LeakyReLU(0.1, inplace=True)
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
     
@@ -85,9 +99,9 @@ class ResidualConvBlock(nn.Module):
     def __init__(self, channels, dropout=0.0):
         super().__init__()
         self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(channels)
+        self.bn1 = _make_norm(channels)
         self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(channels)
+        self.bn2 = _make_norm(channels)
         self.relu = nn.LeakyReLU(0.1, inplace=True)
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
     
@@ -98,6 +112,26 @@ class ResidualConvBlock(nn.Module):
         out = self.bn2(self.conv2(out))
         out = out + residual
         return self.relu(out)
+
+
+class GatedConvBlock(nn.Module):
+    """Gated convolution block (helps the network condition on the mask channel)."""
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, dropout=0.0):
+        super().__init__()
+        self.feature = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding)
+        self.gate = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding)
+        self.norm = _make_norm(out_channels)
+        self.act = nn.LeakyReLU(0.1, inplace=True)
+        self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
+
+    def forward(self, x):
+        feat = self.feature(x)
+        gate = torch.sigmoid(self.gate(x))
+        out = feat * gate
+        out = self.norm(out)
+        out = self.act(out)
+        out = self.dropout(out)
+        return out
 
 
 class DownBlock(nn.Module):
@@ -147,7 +181,7 @@ class MyModel(nn.Module):
         
         # Initial convolution with larger receptive field
         self.init_conv = nn.Sequential(
-            ConvBlock(n_in_channels, base_channels, kernel_size=7, padding=3),
+            GatedConvBlock(n_in_channels, base_channels, kernel_size=7, padding=3, dropout=dropout),
             ConvBlock(base_channels, base_channels),
             ResidualConvBlock(base_channels)
         )

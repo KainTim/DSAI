@@ -32,6 +32,25 @@ def resize(img: Image):
         transforms.CenterCrop((IMAGE_DIMENSION, IMAGE_DIMENSION))
     ])
     return resize_transforms(img)
+
+
+def augment_geometric(img: Image.Image) -> Image.Image:
+    """Lightweight, label-preserving augmentation (safe for train/val/test splits)."""
+    # Horizontal flip
+    if random.random() < 0.5:
+        img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    # Vertical flip (less frequent)
+    if random.random() < 0.2:
+        img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+    # 90-degree rotations (no interpolation artifacts)
+    r = random.random()
+    if r < 0.25:
+        img = img.transpose(Image.Transpose.ROTATE_90)
+    elif r < 0.5:
+        img = img.transpose(Image.Transpose.ROTATE_180)
+    elif r < 0.75:
+        img = img.transpose(Image.Transpose.ROTATE_270)
+    return img
 def preprocess(input_array: np.ndarray):
     input_array = np.asarray(input_array, dtype=np.float32) / 255.0
     return input_array
@@ -50,13 +69,17 @@ class ImageDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx:int):
         index = int(idx)
         
-        image = Image.open(self.imagefiles[index])
+        image = Image.open(self.imagefiles[index]).convert("RGB")
+        image = augment_geometric(image)
         image = np.asarray(resize(image))
         image = preprocess(image)
-        spacing_x = random.randint(2,6)
-        spacing_y = random.randint(2,6)
-        offset_x = random.randint(0,8)
-        offset_y = random.randint(0,8)
+
+        # Sample a grid-mask similar in density to the challenge testset (~8% known pixels).
+        # IMPORTANT: offset ranges must be tied to spacing to avoid accidental distribution shift.
+        spacing_x = random.randint(4, 6)
+        spacing_y = random.randint(2, 4)
+        offset_x = random.randint(0, spacing_x - 1)
+        offset_y = random.randint(0, spacing_y - 1)
         spacing = (spacing_x, spacing_y)
         offset = (offset_x, offset_y)
         input_array, known_array = create_arrays_from_image(image.copy(), offset, spacing)
