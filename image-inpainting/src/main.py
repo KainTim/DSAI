@@ -32,7 +32,7 @@ if __name__ == '__main__':
 
     config_dict['print_train_stats_at'] = 10
     config_dict['print_stats_at'] = 100
-    config_dict['plot_at'] = 10
+    config_dict['plot_at'] = 100
     config_dict['validate_at'] = 100
 
     network_config = {
