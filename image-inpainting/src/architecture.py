@@ -15,9 +15,11 @@ def init_weights(m):
         nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
-    elif isinstance(m, nn.BatchNorm2d):
-        nn.init.constant_(m.weight, 1)
-        nn.init.constant_(m.bias, 0)
+    elif isinstance(m, (nn.BatchNorm2d, nn.InstanceNorm2d)):
+        if m.weight is not None:
+            nn.init.constant_(m.weight, 1)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
 
 
 class ChannelAttention(nn.Module):
@@ -69,35 +71,36 @@ class CBAM(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    """Convolutional block with Conv2d -> BatchNorm -> LeakyReLU"""
-    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, dropout=0.0):
+    """Convolutional block with Conv2d -> InstanceNorm2d -> GELU"""
+    def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, dropout=0.0, dilation=1):
         super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.LeakyReLU(0.1, inplace=True)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation)
+        # InstanceNorm is preferred for style/inpainting tasks
+        self.bn = nn.InstanceNorm2d(out_channels, affine=True)
+        self.act = nn.GELU()
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
     
     def forward(self, x):
-        return self.dropout(self.relu(self.bn(self.conv(x))))
+        return self.dropout(self.act(self.bn(self.conv(x))))
 
 class ResidualConvBlock(nn.Module):
     """Residual convolutional block for better gradient flow"""
-    def __init__(self, channels, dropout=0.0):
+    def __init__(self, channels, dropout=0.0, dilation=1):
         super().__init__()
-        self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(channels)
-        self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(channels)
-        self.relu = nn.LeakyReLU(0.1, inplace=True)
+        self.conv1 = nn.Conv2d(channels, channels, 3, padding=dilation, dilation=dilation)
+        self.bn1 = nn.InstanceNorm2d(channels, affine=True)
+        self.conv2 = nn.Conv2d(channels, channels, 3, padding=dilation, dilation=dilation)
+        self.bn2 = nn.InstanceNorm2d(channels, affine=True)
+        self.act = nn.GELU()
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
     
     def forward(self, x):
         residual = x
-        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.act(self.bn1(self.conv1(x)))
         out = self.dropout(out)
         out = self.bn2(self.conv2(out))
         out = out + residual
-        return self.relu(out)
+        return self.act(out)
 
 
 class DownBlock(nn.Module):
@@ -161,9 +164,9 @@ class MyModel(nn.Module):
         # Bottleneck with multiple residual blocks
         self.bottleneck = nn.Sequential(
             ConvBlock(base_channels * 16, base_channels * 16, dropout=dropout),
-            ResidualConvBlock(base_channels * 16, dropout=dropout),
-            ResidualConvBlock(base_channels * 16, dropout=dropout),
-            ResidualConvBlock(base_channels * 16, dropout=dropout),
+            ResidualConvBlock(base_channels * 16, dropout=dropout, dilation=2),
+            ResidualConvBlock(base_channels * 16, dropout=dropout, dilation=4),
+            ResidualConvBlock(base_channels * 16, dropout=dropout, dilation=8),
             CBAM(base_channels * 16)
         )
         
@@ -183,7 +186,7 @@ class MyModel(nn.Module):
         # Output layer with smooth transition
         self.output = nn.Sequential(
             nn.Conv2d(base_channels, base_channels // 2, kernel_size=3, padding=1),
-            nn.LeakyReLU(0.1, inplace=True),
+            nn.GELU(),
             nn.Conv2d(base_channels // 2, 3, kernel_size=1),
             nn.Sigmoid()  # Ensure output is in [0, 1] range
         )

@@ -26,11 +26,21 @@ def create_arrays_from_image(image_array: np.ndarray, offset: tuple, spacing: tu
 
     return image_array, known_array
 
-def resize(img: Image):
-    resize_transforms = transforms.Compose([
+def resize(img: Image, augment: bool = False):
+    transforms_list = [
         transforms.Resize((IMAGE_DIMENSION, IMAGE_DIMENSION)),
         transforms.CenterCrop((IMAGE_DIMENSION, IMAGE_DIMENSION))
-    ])
+    ]
+    
+    if augment:
+        transforms_list = [
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05),
+            transforms.RandomRotation(10),
+        ] + transforms_list
+        
+    resize_transforms = transforms.Compose(transforms_list)
     return resize_transforms(img)
 def preprocess(input_array: np.ndarray):
     input_array = np.asarray(input_array, dtype=np.float32) / 255.0
@@ -41,8 +51,9 @@ class ImageDataset(torch.utils.data.Dataset):
     Dataset class for loading images from a folder
     """
 
-    def __init__(self, datafolder: str):
+    def __init__(self, datafolder: str, augment: bool = False):
         self.imagefiles = sorted(glob.glob(os.path.join(datafolder,"**","*.jpg"),recursive=True))
+        self.augment = augment
 
     def __len__(self):
         return len(self.imagefiles)
@@ -51,7 +62,7 @@ class ImageDataset(torch.utils.data.Dataset):
         index = int(idx)
         
         image = Image.open(self.imagefiles[index])
-        image = np.asarray(resize(image))
+        image = np.asarray(resize(image, self.augment))
         image = preprocess(image)
         spacing_x = random.randint(2,6)
         spacing_y = random.randint(2,6)

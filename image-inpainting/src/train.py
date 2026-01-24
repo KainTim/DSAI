@@ -84,16 +84,21 @@ def train(seed, testset_ratio, validset_ratio, data_path, results_path, early_st
     plotpath = os.path.join(results_path, "plots")
     os.makedirs(plotpath, exist_ok=True)
 
-    image_dataset = datasets.ImageDataset(datafolder=data_path)
+    image_dataset = datasets.ImageDataset(datafolder=data_path, augment=False)
 
     n_total = len(image_dataset)
     n_test = int(n_total * testset_ratio)
     n_valid = int(n_total * validset_ratio)
     n_train = n_total - n_test - n_valid
     indices = np.random.permutation(n_total)
-    dataset_train = Subset(image_dataset, indices=indices[0:n_train])
-    dataset_valid = Subset(image_dataset, indices=indices[n_train:n_train + n_valid])
-    dataset_test = Subset(image_dataset, indices=indices[n_train + n_valid:n_total])
+    
+    # Create datasets with and without augmentation
+    train_dataset_source = datasets.ImageDataset(datafolder=data_path, augment=True)
+    val_test_dataset_source = datasets.ImageDataset(datafolder=data_path, augment=False)
+    
+    dataset_train = Subset(train_dataset_source, indices=indices[0:n_train])
+    dataset_valid = Subset(val_test_dataset_source, indices=indices[n_train:n_train + n_valid])
+    dataset_test = Subset(val_test_dataset_source, indices=indices[n_train + n_valid:n_total])
 
     assert len(image_dataset) == len(dataset_train) + len(dataset_test) + len(dataset_valid)
 
