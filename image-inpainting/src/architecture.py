@@ -100,6 +100,26 @@ class ResidualConvBlock(nn.Module):
         return self.relu(out)
 
 
+class DilatedResidualBlock(nn.Module):
+    """Residual block with dilated convolutions for larger receptive field"""
+    def __init__(self, channels, dilation=2, dropout=0.0):
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels, channels, 3, padding=dilation, dilation=dilation)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, 3, padding=dilation, dilation=dilation)
+        self.bn2 = nn.BatchNorm2d(channels)
+        self.relu = nn.LeakyReLU(0.1, inplace=True)
+        self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
+    
+    def forward(self, x):
+        residual = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.dropout(out)
+        out = self.bn2(self.conv2(out))
+        out = out + residual
+        return self.relu(out)
+
+
 class DownBlock(nn.Module):
     """Downsampling block with conv blocks, residual connection, attention, and max pooling"""
     def __init__(self, in_channels, out_channels, dropout=0.1):
@@ -158,11 +178,12 @@ class MyModel(nn.Module):
         self.down3 = DownBlock(base_channels * 4, base_channels * 8, dropout=dropout)
         self.down4 = DownBlock(base_channels * 8, base_channels * 16, dropout=dropout)
         
-        # Bottleneck with multiple residual blocks
+        # Bottleneck with multi-scale dilated convolutions (ASPP-style)
         self.bottleneck = nn.Sequential(
             ConvBlock(base_channels * 16, base_channels * 16, dropout=dropout),
             ResidualConvBlock(base_channels * 16, dropout=dropout),
-            ResidualConvBlock(base_channels * 16, dropout=dropout),
+            DilatedResidualBlock(base_channels * 16, dilation=2, dropout=dropout),
+            DilatedResidualBlock(base_channels * 16, dilation=4, dropout=dropout),
             ResidualConvBlock(base_channels * 16, dropout=dropout),
             CBAM(base_channels * 16)
         )

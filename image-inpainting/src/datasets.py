@@ -10,7 +10,7 @@ import numpy as np
 import random
 import glob
 import os
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 IMAGE_DIMENSION = 100
 
@@ -38,25 +38,69 @@ def preprocess(input_array: np.ndarray):
 
 class ImageDataset(torch.utils.data.Dataset):
     """
-    Dataset class for loading images from a folder
+    Dataset class for loading images from a folder with data augmentation
     """
 
-    def __init__(self, datafolder: str):
+    def __init__(self, datafolder: str, augment: bool = True):
         self.imagefiles = sorted(glob.glob(os.path.join(datafolder,"**","*.jpg"),recursive=True))
+        self.augment = augment
 
     def __len__(self):
         return len(self.imagefiles)
         
+    def augment_image(self, image: Image) -> Image:
+        """Apply random augmentations to image"""
+        # Random horizontal flip
+        if random.random() > 0.5:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+        
+        # Random vertical flip
+        if random.random() > 0.5:
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+        
+        # Random rotation (90, 180, 270 degrees)
+        if random.random() > 0.5:
+            angle = random.choice([90, 180, 270])
+            image = image.rotate(angle)
+        
+        # Random brightness adjustment
+        if random.random() > 0.5:
+            enhancer = ImageEnhance.Brightness(image)
+            factor = random.uniform(0.8, 1.2)
+            image = enhancer.enhance(factor)
+        
+        # Random contrast adjustment
+        if random.random() > 0.5:
+            enhancer = ImageEnhance.Contrast(image)
+            factor = random.uniform(0.8, 1.2)
+            image = enhancer.enhance(factor)
+        
+        # Random color adjustment
+        if random.random() > 0.5:
+            enhancer = ImageEnhance.Color(image)
+            factor = random.uniform(0.8, 1.2)
+            image = enhancer.enhance(factor)
+        
+        return image
+    
     def __getitem__(self, idx:int):
         index = int(idx)
         
         image = Image.open(self.imagefiles[index])
-        image = np.asarray(resize(image))
+        image = resize(image)
+        
+        # Apply augmentation if enabled
+        if self.augment:
+            image = self.augment_image(image)
+        
+        image = np.asarray(image)
         image = preprocess(image)
-        spacing_x = random.randint(2,6)
-        spacing_y = random.randint(2,6)
-        offset_x = random.randint(0,8)
-        offset_y = random.randint(0,8)
+        
+        # Vary spacing and offset more for additional diversity
+        spacing_x = random.randint(2,7)
+        spacing_y = random.randint(2,7)
+        offset_x = random.randint(0,10)
+        offset_y = random.randint(0,10)
         spacing = (spacing_x, spacing_y)
         offset = (offset_x, offset_y)
         input_array, known_array = create_arrays_from_image(image.copy(), offset, spacing)
