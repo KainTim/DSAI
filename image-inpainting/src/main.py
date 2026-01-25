@@ -38,8 +38,8 @@ if __name__ == '__main__':
 
     network_config = {
         'n_in_channels': 4,
-        'base_channels': 40,  # Reduced for lower complexity
-        'dropout': 0.05  # Lower dropout for faster convergence
+        'base_channels': 40,  # Optimized for memory efficiency
+        'dropout': 0.08  # Fine-tuned dropout
     }
     
     config_dict['network_config'] = network_config
