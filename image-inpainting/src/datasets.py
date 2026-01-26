@@ -37,27 +37,35 @@ def preprocess(input_array: np.ndarray):
     input_array = np.asarray(input_array, dtype=np.float32) / 255.0
     return input_array
 
-def augment_image(img: Image, strength: float = 0.5) -> Image:
-    """Apply fast data augmentation with controlled strength"""
+def augment_image(img: Image, strength: float = 0.7) -> Image:
+    """Apply comprehensive data augmentation for better generalization"""
     # Random horizontal flip
     if random.random() > 0.5:
         img = img.transpose(Image.FLIP_LEFT_RIGHT)
     
-    # Random rotation (90, 180, 270 degrees) - less frequent for speed
-    if random.random() > 0.6:
+    # Random vertical flip
+    if random.random() > 0.5:
+        img = img.transpose(Image.FLIP_TOP_BOTTOM)
+    
+    # Random rotation (90, 180, 270 degrees)
+    if random.random() > 0.5:
         angle = random.choice([90, 180, 270])
         img = img.rotate(angle)
     
-    # Simplified color jitter - only one transformation per image for speed
+    # Color augmentation - more aggressive for long training
     rand = random.random()
-    if rand > 0.66:
+    if rand > 0.75:
         # Brightness
-        factor = 1.0 + random.uniform(-0.15, 0.15) * strength
+        factor = 1.0 + random.uniform(-0.2, 0.2) * strength
         img = ImageEnhance.Brightness(img).enhance(factor)
-    elif rand > 0.33:
+    elif rand > 0.5:
         # Contrast
-        factor = 1.0 + random.uniform(-0.15, 0.15) * strength
+        factor = 1.0 + random.uniform(-0.2, 0.2) * strength
         img = ImageEnhance.Contrast(img).enhance(factor)
+    elif rand > 0.25:
+        # Saturation
+        factor = 1.0 + random.uniform(-0.15, 0.15) * strength
+        img = ImageEnhance.Color(img).enhance(factor)
     
     return img
 
@@ -66,7 +74,7 @@ class ImageDataset(torch.utils.data.Dataset):
     Dataset class for loading images from a folder with augmentation support
     """
 
-    def __init__(self, datafolder: str, augment: bool = True, augment_strength: float = 0.5):
+    def __init__(self, datafolder: str, augment: bool = True, augment_strength: float = 0.7):
         self.imagefiles = sorted(glob.glob(os.path.join(datafolder,"**","*.jpg"),recursive=True))
         self.augment = augment
         self.augment_strength = augment_strength

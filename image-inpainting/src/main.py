@@ -24,22 +24,22 @@ if __name__ == '__main__':
     config_dict['results_path'] = os.path.join(project_root, "results")
     config_dict['data_path'] = os.path.join(project_root, "data", "dataset")
     config_dict['device'] = None
-    config_dict['learningrate'] = 1e-3  # Higher max LR for OneCycleLR
-    config_dict['weight_decay'] = 1e-5  # Lower for faster learning
-    config_dict['n_updates'] = 3500  # Reduced for fast training
-    config_dict['batchsize'] = 96  # Larger batch for speed
-    config_dict['early_stopping_patience'] = 3  # Adjusted patience
+    config_dict['learningrate'] = 8e-4  # Optimized for long training
+    config_dict['weight_decay'] = 1e-4  # Better regularization for long training
+    config_dict['n_updates'] = 30000  # Full day of training (~24 hours)
+    config_dict['batchsize'] = 64  # Balanced for memory and quality
+    config_dict['early_stopping_patience'] = 15  # More patience for better convergence
     config_dict['use_wandb'] = False
 
-    config_dict['print_train_stats_at'] = 10
-    config_dict['print_stats_at'] = 100
+    config_dict['print_train_stats_at'] = 50
+    config_dict['print_stats_at'] = 200
     config_dict['plot_at'] = 500
-    config_dict['validate_at'] = 500  # More frequent validation
+    config_dict['validate_at'] = 500  # Regular validation
 
     network_config = {
         'n_in_channels': 4,
-        'base_channels': 40,  # Optimized for memory efficiency
-        'dropout': 0.08  # Fine-tuned dropout
+        'base_channels': 44,  # Optimal capacity for 16GB VRAM
+        'dropout': 0.12  # Higher dropout for longer training
     }
     
     config_dict['network_config'] = network_config

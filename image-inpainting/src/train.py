@@ -15,7 +15,6 @@ import os
 
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
-from torch.optim.lr_scheduler import OneCycleLR
 
 import wandb
 
@@ -44,6 +43,10 @@ def train(seed, testset_ratio, validset_ratio, data_path, results_path, early_st
 
     if isinstance(device, str):
         device = torch.device(device)
+    
+    # Enable mixed precision training for memory efficiency
+    use_amp = torch.cuda.is_available()
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
 
     if use_wandb:
         wandb.login()
@@ -93,11 +96,12 @@ def train(seed, testset_ratio, validset_ratio, data_path, results_path, early_st
     mse_loss = torch.nn.MSELoss()  # Keep for evaluation
 
     # defining the optimizer with AdamW for better weight decay handling
-    optimizer = torch.optim.AdamW(network.parameters(), lr=learningrate, weight_decay=weight_decay, betas=(0.9, 0.99))
+    optimizer = torch.optim.AdamW(network.parameters(), lr=learningrate, weight_decay=weight_decay, betas=(0.9, 0.999))
     
-    # OneCycleLR for fast convergence - ramps up then down over entire training
-    scheduler = OneCycleLR(optimizer, max_lr=learningrate, total_steps=n_updates, 
-                          pct_start=0.3, anneal_strategy='cos', div_factor=25.0, final_div_factor=1e4)
+    # Cosine annealing with warm restarts for long training
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, T_0=n_updates//4, T_mult=1, eta_min=learningrate/100
+    )
 
     if use_wandb:
         wandb.watch(network, mse_loss, log="all", log_freq=10)
@@ -122,17 +126,31 @@ def train(seed, testset_ratio, validset_ratio, data_path, results_path, early_st
 
             optimizer.zero_grad()
 
-            output = network(input)
-
-            loss = rmse_loss(output, target)
-
-            loss.backward()
+            # Mixed precision training for memory efficiency
+            if use_amp:
+                with torch.amp.autocast('cuda'):
+                    output = network(input)
+                    loss = rmse_loss(output, target)
+                
+                scaler.scale(loss).backward()
+                
+                # Gradient clipping for training stability
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(network.parameters(), max_norm=1.0)
+                
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                output = network(input)
+                loss = rmse_loss(output, target)
+                loss.backward()
+                
+                # Gradient clipping for training stability
+                torch.nn.utils.clip_grad_norm_(network.parameters(), max_norm=1.0)
+                
+                optimizer.step()
             
-            # Gradient clipping for training stability
-            torch.nn.utils.clip_grad_norm_(network.parameters(), max_norm=1.0)
-
-            optimizer.step()
-            scheduler.step()  # OneCycleLR steps once per optimizer step
+            scheduler.step()
 
             loss_list.append(loss.item())
 
@@ -143,7 +161,11 @@ def train(seed, testset_ratio, validset_ratio, data_path, results_path, early_st
             # plotting
             if (i + 1) % plot_at == 0:
                 print(f"Plotting images, current update {i + 1}")
-                plot(input.cpu().numpy(), target.detach().cpu().numpy(), output.detach().cpu().numpy(), plotpath, i)
+                # Convert to float32 for matplotlib compatibility
+                plot(input.float().cpu().numpy(), 
+                     target.detach().float().cpu().numpy(), 
+                     output.detach().float().cpu().numpy(), 
+                     plotpath, i)
 
             # evaluating model every validate_at sample
             if (i + 1) % validate_at == 0:
