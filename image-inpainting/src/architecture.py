@@ -86,6 +86,34 @@ class EfficientAttention(nn.Module):
         return x
 
 
+class SelfAttention(nn.Module):
+    """Self-attention module for long-range dependencies"""
+    def __init__(self, in_channels, reduction=8):
+        super().__init__()
+        self.query = nn.Conv2d(in_channels, in_channels // reduction, 1)
+        self.key = nn.Conv2d(in_channels, in_channels // reduction, 1)
+        self.value = nn.Conv2d(in_channels, in_channels, 1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.softmax = nn.Softmax(dim=-1)
+    
+    def forward(self, x):
+        batch_size, C, H, W = x.size()
+        
+        # Generate query, key, value
+        query = self.query(x).view(batch_size, -1, H * W).permute(0, 2, 1)
+        key = self.key(x).view(batch_size, -1, H * W)
+        value = self.value(x).view(batch_size, -1, H * W)
+        
+        # Attention map
+        attention = self.softmax(torch.bmm(query, key))
+        out = torch.bmm(value, attention.permute(0, 2, 1))
+        out = out.view(batch_size, C, H, W)
+        
+        # Residual connection with learnable weight
+        out = self.gamma * out + x
+        return out
+
+
 class ConvBlock(nn.Module):
     """Convolutional block with Conv2d -> BatchNorm -> LeakyReLU"""
     def __init__(self, in_channels, out_channels, kernel_size=3, padding=1, dilation=1, dropout=0.0, separable=False):
@@ -150,7 +178,7 @@ class ResidualConvBlock(nn.Module):
 
 class DownBlock(nn.Module):
     """Enhanced downsampling block with dense and residual connections"""
-    def __init__(self, in_channels, out_channels, dropout=0.1, use_attention=True, use_dense=False):
+    def __init__(self, in_channels, out_channels, dropout=0.1, use_attention=True, use_dense=False, use_self_attention=False):
         super().__init__()
         self.conv1 = ConvBlock(in_channels, out_channels, dropout=dropout, separable=True)
         self.conv2 = ConvBlock(out_channels, out_channels, dropout=dropout)
@@ -159,18 +187,20 @@ class DownBlock(nn.Module):
         else:
             self.dense = ResidualConvBlock(out_channels, dropout=dropout)
         self.attention = EfficientAttention(out_channels) if use_attention else nn.Identity()
+        self.self_attention = SelfAttention(out_channels) if use_self_attention else nn.Identity()
         self.pool = nn.MaxPool2d(2)
     
     def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.dense(x)
-        skip = self.attention(x)
+        x = self.attention(x)
+        skip = self.self_attention(x)
         return self.pool(skip), skip
 
 class UpBlock(nn.Module):
     """Enhanced upsampling block with gated skip connections"""
-    def __init__(self, in_channels, out_channels, dropout=0.1, use_attention=True, use_dense=False):
+    def __init__(self, in_channels, out_channels, dropout=0.1, use_attention=True, use_dense=False, use_self_attention=False):
         super().__init__()
         self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
         # Skip connection has in_channels, upsampled has out_channels
@@ -183,6 +213,7 @@ class UpBlock(nn.Module):
         else:
             self.dense = ResidualConvBlock(out_channels, dropout=dropout)
         self.attention = EfficientAttention(out_channels) if use_attention else nn.Identity()
+        self.self_attention = SelfAttention(out_channels) if use_self_attention else nn.Identity()
     
     def forward(self, x, skip):
         x = self.up(x)
@@ -194,6 +225,7 @@ class UpBlock(nn.Module):
         x = self.conv2(x)
         x = self.dense(x)
         x = self.attention(x)
+        x = self.self_attention(x)
         return x
 
 class MyModel(nn.Module):
@@ -225,19 +257,20 @@ class MyModel(nn.Module):
         # Encoder with progressive feature extraction
         self.down1 = DownBlock(base_channels, base_channels * 2, dropout=dropout, use_attention=False, use_dense=False)
         self.down2 = DownBlock(base_channels * 2, base_channels * 4, dropout=dropout, use_attention=True, use_dense=True)
-        self.down3 = DownBlock(base_channels * 4, base_channels * 8, dropout=dropout, use_attention=True, use_dense=True)
+        self.down3 = DownBlock(base_channels * 4, base_channels * 8, dropout=dropout, use_attention=True, use_dense=True, use_self_attention=True)
         
-        # Enhanced bottleneck with multi-scale features and dense connections
+        # Enhanced bottleneck with multi-scale features, dense connections, and self-attention
         self.bottleneck = nn.Sequential(
             ConvBlock(base_channels * 8, base_channels * 8, dropout=dropout),
-            DenseBlock(base_channels * 8, growth_rate=10, num_layers=3, dropout=dropout),
+            DenseBlock(base_channels * 8, growth_rate=12, num_layers=3, dropout=dropout),
+            SelfAttention(base_channels * 8, reduction=4),
             ConvBlock(base_channels * 8, base_channels * 8, dilation=2, padding=2, dropout=dropout),
             ResidualConvBlock(base_channels * 8, dropout=dropout),
             EfficientAttention(base_channels * 8)
         )
         
         # Decoder with progressive reconstruction
-        self.up1 = UpBlock(base_channels * 8, base_channels * 4, dropout=dropout, use_attention=True, use_dense=True)
+        self.up1 = UpBlock(base_channels * 8, base_channels * 4, dropout=dropout, use_attention=True, use_dense=True, use_self_attention=True)
         self.up2 = UpBlock(base_channels * 4, base_channels * 2, dropout=dropout, use_attention=True, use_dense=True)
         self.up3 = UpBlock(base_channels * 2, base_channels, dropout=dropout, use_attention=False, use_dense=False)
         

@@ -3,3 +3,4 @@ data/*
 *.jpg
 *.pt
 __pycache__/
+runtime_predictions.npz

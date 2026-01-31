@@ -122,6 +122,13 @@ def create_predictions(model_config, state_dict_path, testset_path, device, save
 
     predictions = np.stack(predictions, axis=0)
 
+    # Handle NaN and inf values before conversion
+    nan_mask = ~np.isfinite(predictions)
+    if nan_mask.any():
+        nan_count = nan_mask.sum()
+        print(f"Warning: Found {nan_count} NaN/Inf values in predictions. Replacing with 0.")
+        predictions = np.nan_to_num(predictions, nan=0.0, posinf=1.0, neginf=0.0)
+    
     predictions = (np.clip(predictions, 0, 1) * 255.0).astype(np.uint8)
 
     data = {
