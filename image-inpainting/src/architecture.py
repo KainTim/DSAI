@@ -242,10 +242,13 @@ class MyModel(nn.Module):
         super().__init__()
         
         # Separate mask processing for better feature extraction
+        # Separate mask processing for better feature extraction
         self.mask_conv = nn.Sequential(
             nn.Conv2d(1, base_channels // 4, 3, padding=1),
+            nn.BatchNorm2d(base_channels // 4, momentum=0.1, eps=1e-5),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(base_channels // 4, base_channels // 4, 3, padding=1),
+            nn.BatchNorm2d(base_channels // 4, momentum=0.1, eps=1e-5),
             nn.LeakyReLU(0.2, inplace=True)
         )
         

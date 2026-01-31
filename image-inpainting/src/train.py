@@ -313,8 +313,8 @@ def train(seed, testset_ratio, validset_ratio, data_path, results_path, early_st
 
             input, target = input.to(device), target.to(device)
             
-            # Check for runtime config updates every 50 steps
-            if i % 50 == 0 and i > 0:
+            # Check for runtime config updates every 5 steps
+            if i % 5 == 0 and i > 0:
                 runtime_params = load_runtime_config(config_json_path, runtime_params)
                 n_updates = runtime_params['n_updates']
                 plot_at = runtime_params['plot_at']
