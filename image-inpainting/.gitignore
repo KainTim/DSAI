@@ -2,3 +2,4 @@ data/*
 *.zip
 *.jpg
 *.pt
+__pycache__/
