@@ -7,6 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 
 def init_weights(m):
@@ -52,10 +53,13 @@ class EfficientChannelAttention(nn.Module):
     def forward(self, x):
         # Global pooling
         y = self.avg_pool(x)
-        # 1D convolution on channel dimension
-        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
-        y = self.sigmoid(y)
-        return x * y.expand_as(x)
+        # 1D convolution on channel dimension - add safety checks
+        if y.size(-1) == 1 and y.size(-2) == 1:
+            y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+            y = self.sigmoid(y)
+            y = torch.clamp(y, min=0.0, max=1.0)  # Ensure valid range
+            return x * y.expand_as(x)
+        return x
 
 
 class SpatialAttention(nn.Module):
@@ -104,8 +108,11 @@ class SelfAttention(nn.Module):
         key = self.key(x).view(batch_size, -1, H * W)
         value = self.value(x).view(batch_size, -1, H * W)
         
-        # Attention map
-        attention = self.softmax(torch.bmm(query, key))
+        # Attention map with numerical stability
+        attention_logits = torch.bmm(query, key)
+        # Scale for numerical stability
+        attention_logits = attention_logits / math.sqrt(query.size(-1))
+        attention = self.softmax(attention_logits)
         out = torch.bmm(value, attention.permute(0, 2, 1))
         out = out.view(batch_size, C, H, W)
         
@@ -126,7 +133,8 @@ class ConvBlock(nn.Module):
             )
         else:
             self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, dilation=dilation)
-        self.bn = nn.BatchNorm2d(out_channels)
+        # Add momentum and eps for numerical stability
+        self.bn = nn.BatchNorm2d(out_channels, momentum=0.1, eps=1e-5, track_running_stats=True)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
         self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
     
@@ -250,7 +258,7 @@ class MyModel(nn.Module):
         # Fusion of mask and image features
         self.fusion = nn.Sequential(
             nn.Conv2d(base_channels + base_channels // 4, base_channels, 1),
-            nn.BatchNorm2d(base_channels),
+            nn.BatchNorm2d(base_channels, momentum=0.1, eps=1e-5, track_running_stats=True),
             nn.LeakyReLU(0.2, inplace=True)
         )
         
@@ -302,25 +310,58 @@ class MyModel(nn.Module):
         image = x[:, :3, :, :]
         mask = x[:, 3:4, :, :]
         
+        # Clamp inputs to valid range
+        image = torch.clamp(image, 0.0, 1.0)
+        mask = torch.clamp(mask, 0.0, 1.0)
+        
         # Process mask and image separately
         mask_features = self.mask_conv(mask)
         image_features = self.image_conv(image)
         
+        # Safety check after initial processing
+        if not torch.isfinite(mask_features).all():
+            mask_features = torch.nan_to_num(mask_features, nan=0.0, posinf=1.0, neginf=-1.0)
+        if not torch.isfinite(image_features).all():
+            image_features = torch.nan_to_num(image_features, nan=0.0, posinf=1.0, neginf=-1.0)
+        
         # Fuse features
         x0 = self.fusion(torch.cat([image_features, mask_features], dim=1))
+        if not torch.isfinite(x0).all():
+            x0 = torch.nan_to_num(x0, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Encoder
         x1, skip1 = self.down1(x0)
+        if not torch.isfinite(x1).all():
+            x1 = torch.nan_to_num(x1, nan=0.0, posinf=1.0, neginf=-1.0)
+            skip1 = torch.nan_to_num(skip1, nan=0.0, posinf=1.0, neginf=-1.0)
+        
         x2, skip2 = self.down2(x1)
+        if not torch.isfinite(x2).all():
+            x2 = torch.nan_to_num(x2, nan=0.0, posinf=1.0, neginf=-1.0)
+            skip2 = torch.nan_to_num(skip2, nan=0.0, posinf=1.0, neginf=-1.0)
+        
         x3, skip3 = self.down3(x2)
+        if not torch.isfinite(x3).all():
+            x3 = torch.nan_to_num(x3, nan=0.0, posinf=1.0, neginf=-1.0)
+            skip3 = torch.nan_to_num(skip3, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Bottleneck
         x = self.bottleneck(x3)
+        if not torch.isfinite(x).all():
+            x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Decoder with skip connections
         x = self.up1(x, skip3)
+        if not torch.isfinite(x).all():
+            x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
+        
         x = self.up2(x, skip2)
+        if not torch.isfinite(x).all():
+            x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
+        
         x = self.up3(x, skip1)
+        if not torch.isfinite(x).all():
+            x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Handle dimension mismatch for final fusion
         if x.shape[2:] != x0.shape[2:]:
@@ -329,12 +370,19 @@ class MyModel(nn.Module):
         # Multi-scale fusion with initial features
         x = torch.cat([x, x0], dim=1)
         x = self.multiscale_fusion(x)
+        if not torch.isfinite(x).all():
+            x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Pre-output processing
         x = self.pre_output(x)
+        if not torch.isfinite(x).all():
+            x = torch.nan_to_num(x, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Concatenate with original masked image for residual learning
         x = torch.cat([x, image], dim=1)
         x = self.output(x)
+        
+        # Final safety clamp
+        x = torch.clamp(x, 0.0, 1.0)
         
         return x

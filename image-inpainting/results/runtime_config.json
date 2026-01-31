@@ -1,10 +1,12 @@
 {
+  "learningrate": 0.005,
+  "weight_decay": 5e-05,
   "n_updates": 35000,
   "plot_at": 500,
   "early_stopping_patience": 20,
   "print_stats_at": 200,
   "print_train_stats_at": 50,
-  "validate_at": 400,
+  "validate_at": 500,
   "commands": {
     "save_checkpoint": false,
     "run_test_validation": false,

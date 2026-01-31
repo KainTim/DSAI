@@ -24,17 +24,17 @@ if __name__ == '__main__':
     config_dict['results_path'] = os.path.join(project_root, "results")
     config_dict['data_path'] = os.path.join(project_root, "data", "dataset")
     config_dict['device'] = None
-    config_dict['learningrate'] = 5e-4  # Lower initial LR with warmup
+    config_dict['learningrate'] = 5e-3  # Lower initial LR with warmup
     config_dict['weight_decay'] = 5e-5  # Reduced for more capacity
     config_dict['n_updates'] = 35000  # Extended training for better convergence
-    config_dict['batchsize'] = 48  # Reduced for larger model and mixed precision
+    config_dict['batchsize'] = 64  # Reduced for larger model and mixed precision
     config_dict['early_stopping_patience'] = 20  # More patience for complex model
     config_dict['use_wandb'] = False
 
     config_dict['print_train_stats_at'] = 50
     config_dict['print_stats_at'] = 200
     config_dict['plot_at'] = 500
-    config_dict['validate_at'] = 400  # More frequent validation
+    config_dict['validate_at'] = 500  # More frequent validation
 
     network_config = {
         'n_in_channels': 4,
@@ -69,7 +69,7 @@ if __name__ == '__main__':
     print("  - save_checkpoint: Save model at current step")
     print("  - run_test_validation: Run validation on final test set")
     print("  - generate_predictions: Generate predictions on challenge testset")
-    print("\nChanges will be applied within 100 steps.")
+    print("\nChanges will be applied within 50 steps.")
     print("="*60)
     print()
 

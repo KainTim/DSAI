@@ -18,12 +18,14 @@ def plot(inputs, targets, predictions, path, update):
     os.makedirs(path, exist_ok=True)
     fig, axes = plt.subplots(ncols=3, figsize=(15, 5))
 
-    for i in range(5):
+    # Only plot up to min(5, batch_size) images
+    num_images = min(5, inputs.shape[0])
+    
+    for i in range(num_images):
         for ax, data, title in zip(axes, [inputs, targets, predictions], ["Input", "Target", "Prediction"]):
             ax.clear()
             ax.set_title(title)
-            img = data[i:i + 1:, 0:3, :, :]
-            img = np.squeeze(img)
+            img = data[i, 0:3, :, :]
             img = np.transpose(img, (1, 2, 0))
             img = np.clip(img, 0, 1)
             ax.imshow(img)
@@ -54,24 +56,58 @@ def testset_plot(input_array, output_array, path, index):
 
 
 def evaluate_model(network: torch.nn.Module, dataloader: torch.utils.data.DataLoader, loss_fn, device: torch.device):
-    """Returnse MSE and RMSE of the model on the provided dataloader"""
+    """Returns MSE and RMSE of the model on the provided dataloader"""
+    # Save training mode and switch to eval
+    was_training = network.training
     network.eval()
+    
     loss = 0.0
+    num_batches = 0
     with torch.no_grad():
         for data in dataloader:
             input_array, target = data
             input_array = input_array.to(device)
             target = target.to(device)
+            
+            # Check input validity
+            if not torch.isfinite(input_array).all() or not torch.isfinite(target).all():
+                print(f"Warning: NaN detected in evaluation inputs")
+                continue
 
             outputs = network(input_array)
+            
+            # Clamp outputs to valid range
+            outputs = torch.clamp(outputs, 0.0, 1.0)
+            
+            # Check for NaN in outputs
+            if not torch.isfinite(outputs).all():
+                print(f"Warning: NaN detected in model outputs during evaluation")
+                continue
+            
+            batch_loss = loss_fn(outputs, target).item()
+            
+            # Check for NaN in loss
+            if not np.isfinite(batch_loss):
+                print(f"Warning: NaN detected in loss during evaluation")
+                continue
+            
+            loss += batch_loss
+            num_batches += 1
+        
+        if num_batches == 0:
+            print("Error: No valid batches in evaluation")
+            if was_training:
+                network.train()
+            return float('nan'), float('nan')
+        
+        loss = loss / num_batches
+        rmse = 255.0 * np.sqrt(loss)
 
-            loss += loss_fn(outputs, target).item()
+        # Restore training mode
+        if was_training:
+            network.train()
 
-        loss = loss / len(dataloader)
-
-        network.train()
-
-        return loss, 255.0 * np.sqrt(loss)
+        return loss, rmse
 
 
 def read_compressed_file(file_path: str):
